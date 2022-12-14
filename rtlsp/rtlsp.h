@@ -16,13 +16,13 @@ typedef enum {
     MIN,
     STANDARD,
     MAX
-}LOG_LEVEL;
+} LOG_LEVEL;
 
 typedef enum {
     LOW,
     MEDIUM,
     HIGH
-}IMPORTANCE_LEVEL;
+} IMPORTANCE_LEVEL;
 
 struct rtlsp {
     LOG_LEVEL llevel;

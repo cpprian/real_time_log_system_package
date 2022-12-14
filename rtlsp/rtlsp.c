@@ -10,12 +10,28 @@ void rtlsp_init(LOG_LEVEL llevel, IMPORTANCE_LEVEL ilevel, char *log_path, char 
     rtlsp.dump_path = dump_path;
 
     printf("rtlsp_init() called\n");
-    printf("llevel: %d\n", rtlsp.llevel);
-    printf("ilevel: %d\n", rtlsp.ilevel);
-    printf("log_path: %s\n", rtlsp.log_path);
-    printf("dump_path: %s\n", rtlsp.dump_path);
 }
 
 void rtlsp_destroy() {
     printf("rtlsp_destroy() called\n");
+}
+
+void rtlsp_log(const char *msg) {
+    printf("rtlsp_log() called\n");
+}
+
+void rtlsp_logf(const char *fmt, ...) {
+    printf("rtlsp_logf() called\n");
+}
+
+void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg) {
+    printf("rtlsp_logl() called\n");
+}
+
+void rtlsp_loglf(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *fmt, ...) {
+    printf("rtlsp_loglf() called\n");
+}
+
+void rtlsp_dump() {
+    printf("rtlsp_dump() called\n");
 }
