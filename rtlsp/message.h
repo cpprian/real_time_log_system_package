@@ -19,6 +19,7 @@ typedef enum {
 #define ERR_NULL        "Null pointer"
 #define ERR_ALLOC       "Failed to allocate memory"
 #define ERR_SEM         "Failed to create semaphore"
+#define ERR_SIG         "Failed to register signal handler"
 #define ERR_FOPEN       "Failed to open file"
 #define ERR_FCLOSE      "Failed to close file"
 #define ERR_FWRITE      "Failed to write to file"

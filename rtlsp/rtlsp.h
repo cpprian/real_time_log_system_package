@@ -4,11 +4,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <semaphore.h>
+#include <stdatomic.h>
 
 #include "message.h"
 
@@ -25,11 +28,16 @@ typedef enum {
 } IMPORTANCE_LEVEL;
 
 struct rtlsp {
+    int is_on;
     LOG_LEVEL llevel;
     char *log_path;
     char *dump_path;
     sem_t *sem_log;
     sem_t *sem_dump;
+    sem_t *sem_is_on;
+    pthread_t thread_log;
+    pthread_t thread_dump;
+    struct sigaction sa_log;
 };
 
 void rtlsp_init(LOG_LEVEL llevel, IMPORTANCE_LEVEL ilevel, char *log_path, char *dump_path, int sig1, int sig2);
@@ -40,6 +48,8 @@ void rtlsp_logf(const char *fmt, ...);
 void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg);
 void rtlsp_loglf(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *fmt, ...);
 
-void rtlsp_dump();
+void* rtlsp_dump(void* arg);
+
+void rtlsp_log_thread(int signo, siginfo_t* info, void* other);
 
 #endif // RTLSP_H
