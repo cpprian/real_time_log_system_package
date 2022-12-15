@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
-#include <signal.h>
+#include <fcntl.h>
 #include <semaphore.h>
 
 #include "message.h"
@@ -26,10 +26,10 @@ typedef enum {
 
 struct rtlsp {
     LOG_LEVEL llevel;
-    IMPORTANCE_LEVEL ilevel;
     char *log_path;
     char *dump_path;
-    sem_t *sem;
+    sem_t *sem_log;
+    sem_t *sem_dump;
 };
 
 void rtlsp_init(LOG_LEVEL llevel, IMPORTANCE_LEVEL ilevel, char *log_path, char *dump_path, int sig1, int sig2);

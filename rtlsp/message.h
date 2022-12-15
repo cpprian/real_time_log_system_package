@@ -14,7 +14,9 @@ typedef enum {
 #define MSG_ERROR       "ERROR:"
 #define MSG_WARNING     "WARNING:"
 #define MSG_CRITICAL    "CRITICAL:"
+#define MSG_UNKNOWN     "UNKNOWN:"
 
+#define ERR_NULL        "Null pointer"
 #define ERR_ALLOC       "Failed to allocate memory"
 #define ERR_SEM         "Failed to create semaphore"
 #define ERR_FOPEN       "Failed to open file"
