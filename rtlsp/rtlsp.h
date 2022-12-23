@@ -40,7 +40,7 @@ struct rtlsp {
     struct sigaction sa_log;
 };
 
-void rtlsp_init(LOG_LEVEL llevel, IMPORTANCE_LEVEL ilevel, char *log_path, char *dump_path, int sig1, int sig2);
+void rtlsp_init(LOG_LEVEL llevel, char *log_path, char *dump_path, int sig1, int sig2);
 void rtlsp_destroy();
 
 void rtlsp_log(const char *msg);
@@ -48,8 +48,10 @@ void rtlsp_logf(const char *fmt, ...);
 void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg);
 void rtlsp_loglf(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *fmt, ...);
 
-void* rtlsp_dump(void* arg);
+void rtlsp_dump(int signo, siginfo_t* info, void* other);
 
-void rtlsp_log_thread(int signo, siginfo_t* info, void* other);
+void rtlsp_log_config(int signo, siginfo_t* info, void* other);
+
+void rtlsp_sig(int pid, int signo, int value);
 
 #endif // RTLSP_H

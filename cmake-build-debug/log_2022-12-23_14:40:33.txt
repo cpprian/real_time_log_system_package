@@ -1,0 +1,5 @@
+[2022-12-23 14:40:33] INFO: rtlsp_init() called
+[2022-12-23 14:40:33] INFO: rtlsp_logl() called 1
+[2022-12-23 14:40:34] INFO: rtlsp_logl() called 2
+[2022-12-23 14:40:35] INFO: rtlsp_logl() called 3
+[2022-12-23 14:40:36] INFO: rtlsp_logl() called 4
