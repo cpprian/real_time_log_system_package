@@ -61,8 +61,12 @@ void rtlsp_init(LOG_LEVEL llevel, char *log_path, char *dump_path, int sig1, int
 }
 
 void rtlsp_destroy() {
+    sem_wait(rtlsp.sem_is_on);
+    rtlsp.is_on = 0;
+
     sem_close(rtlsp.sem_log);
     sem_close(rtlsp.sem_dump);
+    sem_close(rtlsp.sem_is_on);
 
     sem_unlink("sem_log");
     sem_unlink("sem_dump");
@@ -79,7 +83,7 @@ void rtlsp_log(const char *msg) {
         rtlsp_logl(MESSAGE_ERROR, LOW, ERR_NULL);
         return;
     }
-    
+
     rtlsp_logl(MESSAGE_INFO, MEDIUM, msg);
 }
 
@@ -104,7 +108,7 @@ void rtlsp_logf(const char *fmt, ...) {
     vsnprintf(msg, MAX_MESSAGE_SIZE, fmt, args);
     va_end(args);
 
-    rtlsp_logl(MESSAGE_INFO, rtlsp.llevel, msg);
+    rtlsp_logl(MESSAGE_INFO, MEDIUM, msg);
 
     free(msg);
 }
@@ -113,11 +117,10 @@ void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg) {
     if (!rtlsp.is_on) {
         return;
     }
-    if (ilevel < rtlsp.llevel) {
+    if (ilevel < (IMPORTANCE_LEVEL)rtlsp.llevel) {
         return;
     }
     if (msg == NULL) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_NULL);
         return;
     }
 
@@ -147,7 +150,6 @@ void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg) {
 
     char* date_now = (char*)calloc(100, sizeof(char));
     if (date_now == NULL) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_ALLOC);
         return;
     }
 
@@ -155,10 +157,8 @@ void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg) {
     struct tm tm = *localtime(&t);
     sprintf(date_now, "%d-%d-%d %d:%d:%d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
     fprintf(log_file, "[%s] %s %s\n", date_now, mtype_str, msg);
-    if (fclose(log_file) != 0) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FCLOSE);
-    }
 
+    fclose(log_file);
     free(date_now);
     sem_post(rtlsp.sem_log);
 }
@@ -167,7 +167,7 @@ void rtlsp_loglf(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *fmt, .
     if (!rtlsp.is_on) {
         return;
     }
-    if (ilevel < rtlsp.llevel) {
+    if (ilevel < (IMPORTANCE_LEVEL)rtlsp.llevel) {
         return;
     }
     if (fmt == NULL) {
@@ -198,7 +198,6 @@ void rtlsp_dump(int signo, siginfo_t* info, void* other) {
     }
     sem_wait(rtlsp.sem_dump);
 
-    printf("Signal %d caught\n", signo);
     char *dump_file_name = (char*)calloc(MAX_MESSAGE_SIZE, sizeof(char));
     if (dump_file_name == NULL) {
         rtlsp_logl(MESSAGE_ERROR, LOW, ERR_ALLOC);
@@ -231,7 +230,8 @@ void rtlsp_dump(int signo, siginfo_t* info, void* other) {
         return;
     }
 
-    int npos, c = 0;
+    int npos = 0;
+    unsigned char c;
     while (fread(line, 1, sizeof(line), proc_maps) > 0) {
         fprintf(dump_file, "%04x", npos);
         npos += 16;
@@ -268,16 +268,13 @@ void rtlsp_log_config(int signo, siginfo_t* info, void* other) {
     sem_wait(rtlsp.sem_is_on);
     switch (info->si_value.sival_int) {
         case 0:
-            rtlsp.llevel = LOW;
-            printf("Log level set to LOW\n");
+            rtlsp.llevel = MIN;
             break;
         case 1:
-            rtlsp.llevel = MEDIUM;
-            printf("Log level set to MEDIUM\n");
+            rtlsp.llevel = STANDARD;
             break;
         case 2:
-            rtlsp.llevel = HIGH;
-            printf("Log level set to HIGH\n");
+            rtlsp.llevel = MAX;
             break;
         case 3:
             if (rtlsp.is_on) {
@@ -285,7 +282,6 @@ void rtlsp_log_config(int signo, siginfo_t* info, void* other) {
             } else {
                 rtlsp.is_on = 1;
             }
-            printf("Log is %s\n", rtlsp.is_on ? "on" : "off");
             break;
         default:
             rtlsp_logl(MESSAGE_ERROR, LOW, ERR_SIG);
@@ -295,8 +291,7 @@ void rtlsp_log_config(int signo, siginfo_t* info, void* other) {
 }
 
 void rtlsp_sig(int pid, int signo, int value) {
-    union sigval val;
-    val.sival_int = value;
+    union sigval val = {.sival_int = value};
     if (sigqueue(pid, signo, val) != 0) {
         rtlsp_logl(MESSAGE_ERROR, LOW, ERR_SIG);
     }

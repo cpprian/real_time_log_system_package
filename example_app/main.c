@@ -7,7 +7,7 @@
 #include "../rtlsp/rtlsp.h"
 
 int main(void) {
-    rtlsp_init(LOW, "./bin/", "./bin/", SIGRTMIN , SIGRTMIN+1);
+    rtlsp_init(LOW, "./example_app/bin/", "./example_app/bin/", SIGRTMIN , SIGRTMIN+1);
 
     srand(time(NULL));
     int r;
