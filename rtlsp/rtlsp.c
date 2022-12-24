@@ -11,7 +11,7 @@ char* generate_log_filename(char* log_path) {
 
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
-    sprintf(log_filename, "log_%d-%d-%d_%d:%d:%d.txt", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    sprintf(log_filename, "%s/log_%d-%d-%d_%d:%d:%d.txt", log_path, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
     return log_filename;
 }
 
@@ -208,7 +208,7 @@ void rtlsp_dump(int signo, siginfo_t* info, void* other) {
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
 
-    sprintf(dump_file_name, "dump_%d-%d-%d_%d:%d:%d.txt", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    sprintf(dump_file_name, "%s/dump_%d-%d-%d_%d:%d:%d.txt", rtlsp.dump_path, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 
     FILE *dump_file = fopen(dump_file_name, "a");
     if (dump_file == NULL) {
