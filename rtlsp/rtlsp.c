@@ -18,10 +18,13 @@ char* generate_log_filename(char* log_path) {
 
 void rtlsp_init(LOG_LEVEL llevel, char *log_path, char *dump_path, int sig1, int sig2) {
     rtlsp.llevel = llevel;
+    rtlsp.is_on = 1;
     rtlsp.dump_path = dump_path;
+    rtlsp.sig_config = sig1;
+    rtlsp.sig_dump = sig2;
 
-    sem_init(&rtlsp.sem_log, 0, 1);
-    sem_init(&rtlsp.sem_dump, 0, 1);
+    sem_init(&rtlsp.sem_log, 0, 0);
+    sem_init(&rtlsp.sem_dump, 0, 0);
     sem_init(&rtlsp.sem_write, 0, 1);
 
     rtlsp.log_path = generate_log_filename(log_path);
@@ -61,6 +64,16 @@ void rtlsp_init(LOG_LEVEL llevel, char *log_path, char *dump_path, int sig1, int
 
     // CREATE DUMP THREAD
     if (pthread_create(&rtlsp.thread_dump, NULL, rtlsp_dump, NULL) != 0) {
+        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_THREAD);
+        return;
+    }
+
+    if (pthread_detach(rtlsp.thread_log) != 0) {
+        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_THREAD);
+        return;
+    }
+
+    if (pthread_detach(rtlsp.thread_dump) != 0) {
         rtlsp_logl(MESSAGE_ERROR, LOW, ERR_THREAD);
         return;
     }
@@ -153,10 +166,11 @@ void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg) {
         return;
     }
     sprintf(date_now, "%d-%d-%d %d:%d:%d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-
+    
     sem_wait(&rtlsp.sem_write);
     FILE *log_file = fopen(rtlsp.log_path, "a+");
     if (log_file == NULL) {
+        printf("Error opening file!\n");
         return;
     }
     fprintf(log_file, "[%s] %s %s\n", date_now, mtype_str, msg);
@@ -202,7 +216,6 @@ void* rtlsp_dump(void* arg) {
     sigaddset(&set, rtlsp.sig_dump);
     pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 
-    time_t t = time(NULL);
     while (1) {
         sem_wait(&rtlsp.sem_dump);
 
@@ -212,6 +225,7 @@ void* rtlsp_dump(void* arg) {
             return NULL;
         }
 
+        time_t t = time(NULL);
         struct tm tm = *localtime(&t);
         sprintf(dump_file_name, "%s/dump_%d-%d-%d_%d:%d:%d.txt", rtlsp.dump_path, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 
@@ -221,6 +235,12 @@ void* rtlsp_dump(void* arg) {
             free(dump_file_name);
             return NULL;
         }
+
+        fprintf(dump_file, "Dump file created at %d-%d-%d %d:%d:%d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+        fprintf(dump_file, "LOG FILE: %s\n", rtlsp.log_path);
+        fprintf(dump_file, "DUMP FILE: %s\n", dump_file_name);
+        fprintf(dump_file, "LOG IS %s\n", rtlsp.is_on ? "ON" : "OFF");
+        fprintf(dump_file, "LOG LEVEL: %d\n", rtlsp.llevel);
 
         if (fclose(dump_file) != 0) {
             rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FCLOSE);
@@ -275,7 +295,7 @@ void* rtlsp_log_config(void* arg) {
 // signal handler for rtlsp_config
 void rtlsp_signal_log_config(int signo, siginfo_t *info, void *other) {
     sem_post(&rtlsp.sem_log);
-    sig_config = signo;
+    sig_config = info->si_value.sival_int;
 }
 
 // signal handler for rtlsp_dump
@@ -286,6 +306,6 @@ void rtlsp_signal_dump(int signo, siginfo_t *info, void *other) {
 void rtlsp_sig(int pid, int signo, int value) {
     union sigval val = {.sival_int = value};
     if (sigqueue(pid, signo, val) != 0) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_SIG);
+        printf("rtlsp_sig: Error sending signal\n");
     }
 }

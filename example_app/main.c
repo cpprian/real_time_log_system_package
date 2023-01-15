@@ -11,19 +11,12 @@ int main(void) {
 
     srand(time(NULL));
     int r;
+    printf("pid = %d\n", getpid());
 
-    for (int i = 0; i < 100; i++) {
-        rtlsp_loglf(MESSAGE_INFO, LOW, "rtlsp_logl() called %d", i);
+    for (int i = 0; i < 1000; i++) {
         r = rand() % 100;
-        if (r > 60) {
-            r = rand() % 4;
-            rtlsp_sig(getpid(), SIGRTMIN, r);
-        }
-
-        r = rand() % 100;
-        if (r > 80) {
-            rtlsp_sig(getpid(), SIGRTMIN+1, r);
-        }
+        rtlsp_loglf(MESSAGE_INFO, LOW, "rtlsp_logl() called %d with value: %d", i, r);
+        printf("rtlsp_logl() called %d with value: %d \n", i, r);
         sleep(1);
     }
 
