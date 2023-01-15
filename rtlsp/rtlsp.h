@@ -29,12 +29,17 @@ typedef enum {
 
 struct rtlsp {
     int is_on;
+    int sig_config;
+    int sig_dump;
     LOG_LEVEL llevel;
     char *log_path;
     char *dump_path;
-    sem_t *sem_log;
-    sem_t *sem_dump;
-    sem_t *sem_is_on;
+    // semaphore for changing the log level and turning on/off the logger
+    sem_t sem_log;
+    // semaphore for saving a new dump
+    sem_t sem_dump;
+    // semaphore for writing to a file
+    sem_t sem_write;
     pthread_t thread_log;
     pthread_t thread_dump;
     struct sigaction sa_log;
@@ -48,10 +53,11 @@ void rtlsp_logf(const char *fmt, ...);
 void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg);
 void rtlsp_loglf(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *fmt, ...);
 
-void rtlsp_dump(int signo, siginfo_t* info, void* other);
+void* rtlsp_dump(void* arg);
+void* rtlsp_log_config(void* arg);
 
-void rtlsp_log_config(int signo, siginfo_t* info, void* other);
-
+void rtlsp_signal_log_config(int signo, siginfo_t *info, void *other);
+void rtlsp_signal_dump(int signo, siginfo_t *info, void *other);
 void rtlsp_sig(int pid, int signo, int value);
 
 #endif // RTLSP_H

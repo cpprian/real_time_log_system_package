@@ -1,11 +1,12 @@
 #include "rtlsp.h"
 
 static struct rtlsp rtlsp;
+volatile sig_atomic_t sig_config;
 
 char* generate_log_filename(char* log_path) {
     char *log_filename = (char*)calloc(100, sizeof(char));
     if (log_filename == NULL) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_ALLOC);
+        printf("generate_log_filename: %s\n", ERR_ALLOC);
         return NULL;
     }
 
@@ -17,60 +18,65 @@ char* generate_log_filename(char* log_path) {
 
 void rtlsp_init(LOG_LEVEL llevel, char *log_path, char *dump_path, int sig1, int sig2) {
     rtlsp.llevel = llevel;
-    rtlsp.is_on = 1;
     rtlsp.dump_path = dump_path;
 
-    rtlsp.sem_log = sem_open("sem_log", O_CREAT, 0644, 1);
-    rtlsp.sem_dump = sem_open("sem_dump", O_CREAT, 0644, 1);
-    rtlsp.sem_is_on = sem_open("sem_is_on", O_CREAT, 0644, 1);
+    sem_init(&rtlsp.sem_log, 0, 1);
+    sem_init(&rtlsp.sem_dump, 0, 1);
+    sem_init(&rtlsp.sem_write, 0, 1);
 
     rtlsp.log_path = generate_log_filename(log_path);
     if (rtlsp.log_path == NULL) {
         return;
     }
 
+    // SET CONFIG LOG SIGNAL
     sigset_t set;
     sigemptyset(&set);
-    sigaddset(&set, sig1);
-    rtlsp.sa_log.sa_sigaction = rtlsp_log_config;
+    sigfillset(&set);
+    rtlsp.sa_log.sa_sigaction = rtlsp_signal_log_config;
     rtlsp.sa_log.sa_mask = set;
     rtlsp.sa_log.sa_flags = SA_SIGINFO;
-
     if (sigaction(sig1, &rtlsp.sa_log, NULL) == -1) {
         rtlsp_logl(MESSAGE_ERROR, LOW, ERR_SIG);
         return;
     }
 
+    // SET DUMP LOG SIGNAL
     sigset_t set2;
     sigemptyset(&set2);
-    sigaddset(&set2, sig2);
-    rtlsp.sa_log.sa_sigaction = rtlsp_dump;
+    sigfillset(&set2);
+    rtlsp.sa_log.sa_sigaction = rtlsp_signal_dump;
     rtlsp.sa_log.sa_mask = set2;
     rtlsp.sa_log.sa_flags = SA_SIGINFO;
-
     if (sigaction(sig2, &rtlsp.sa_log, NULL) == -1) {
         rtlsp_logl(MESSAGE_ERROR, LOW, ERR_SIG);
         return;
     }
 
-    sem_post(rtlsp.sem_log);
-    sem_post(rtlsp.sem_dump);
-    sem_post(rtlsp.sem_is_on);
+    // CREATE LOG THREAD
+    if (pthread_create(&rtlsp.thread_log, NULL, rtlsp_log_config, NULL) != 0) {
+        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_THREAD);
+        return;
+    }
+
+    // CREATE DUMP THREAD
+    if (pthread_create(&rtlsp.thread_dump, NULL, rtlsp_dump, NULL) != 0) {
+        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_THREAD);
+        return;
+    }
 
     rtlsp_logl(MESSAGE_INFO, LOW, "rtlsp_init() called");
 }
 
 void rtlsp_destroy() {
-    sem_wait(rtlsp.sem_is_on);
     rtlsp.is_on = 0;
 
-    sem_close(rtlsp.sem_log);
-    sem_close(rtlsp.sem_dump);
-    sem_close(rtlsp.sem_is_on);
+    sem_destroy(&rtlsp.sem_log);
+    sem_destroy(&rtlsp.sem_dump);
+    sem_destroy(&rtlsp.sem_write);
 
-    sem_unlink("sem_log");
-    sem_unlink("sem_dump");
-    sem_unlink("sem_is_on");
+    pthread_cancel(rtlsp.thread_log);
+    pthread_cancel(rtlsp.thread_dump);
 
     free(rtlsp.log_path);
 }
@@ -124,14 +130,6 @@ void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg) {
         return;
     }
 
-    sem_wait(rtlsp.sem_log);
-
-    FILE *log_file = fopen(rtlsp.log_path, "a+");
-    if (log_file == NULL) {
-        return;
-    }
-
-
     char *mtype_str;
     switch (mtype) {
         case MESSAGE_INFO:
@@ -148,19 +146,25 @@ void rtlsp_logl(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *msg) {
             break;
     }
 
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
     char* date_now = (char*)calloc(100, sizeof(char));
     if (date_now == NULL) {
         return;
     }
-
-    time_t t = time(NULL);
-    struct tm tm = *localtime(&t);
     sprintf(date_now, "%d-%d-%d %d:%d:%d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+    sem_wait(&rtlsp.sem_write);
+    FILE *log_file = fopen(rtlsp.log_path, "a+");
+    if (log_file == NULL) {
+        return;
+    }
     fprintf(log_file, "[%s] %s %s\n", date_now, mtype_str, msg);
 
     fclose(log_file);
+    sem_post(&rtlsp.sem_write);
+
     free(date_now);
-    sem_post(rtlsp.sem_log);
 }
 
 void rtlsp_loglf(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *fmt, ...) {
@@ -192,102 +196,91 @@ void rtlsp_loglf(MESSAGE_TYPE mtype, IMPORTANCE_LEVEL ilevel, const char *fmt, .
     free(msg);
 }
 
-void rtlsp_dump(int signo, siginfo_t* info, void* other) {
-    if (!rtlsp.is_on) {
-        return;
-    }
-    sem_wait(rtlsp.sem_dump);
-
-    char *dump_file_name = (char*)calloc(MAX_MESSAGE_SIZE, sizeof(char));
-    if (dump_file_name == NULL) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_ALLOC);
-        return;
-    }
+void* rtlsp_dump(void* arg) {
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, rtlsp.sig_dump);
+    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 
     time_t t = time(NULL);
-    struct tm tm = *localtime(&t);
+    while (1) {
+        sem_wait(&rtlsp.sem_dump);
 
-    sprintf(dump_file_name, "%s/dump_%d-%d-%d_%d:%d:%d.txt", rtlsp.dump_path, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-
-    FILE *dump_file = fopen(dump_file_name, "a");
-    if (dump_file == NULL) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FOPEN);
-        free(dump_file_name);
-        return;
-    }
-
-    FILE* proc_maps = fopen("/proc/self/root/proc/self/stack", "rb");
-    if (proc_maps == NULL) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FOPEN);
-        free(dump_file_name);
-        return;
-    }
-
-    char *line = (char*)calloc(16, sizeof(char));
-    if (line == NULL) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_ALLOC);
-        free(dump_file_name);
-        return;
-    }
-
-    int npos = 0;
-    unsigned char c;
-    while (fread(line, 1, sizeof(line), proc_maps) > 0) {
-        fprintf(dump_file, "%04x", npos);
-        npos += 16;
-
-        for (int i = 0; i < 16; i++) {
-            fprintf(dump_file, " %02x", line[i]);
+        char *dump_file_name = (char*)calloc(MAX_MESSAGE_SIZE, sizeof(char));
+        if (dump_file_name == NULL) {
+            rtlsp_logl(MESSAGE_ERROR, LOW, ERR_ALLOC);
+            return NULL;
         }
 
-        fprintf(dump_file, "  ");
+        struct tm tm = *localtime(&t);
+        sprintf(dump_file_name, "%s/dump_%d-%d-%d_%d:%d:%d.txt", rtlsp.dump_path, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 
-        for (int i = 0; i < 16; i++) {
-            c = line[i];
-            fprintf(dump_file, "%c", (c < 32 || c > 126) ? '.' : c);
+        FILE *dump_file = fopen(dump_file_name, "a");
+        if (dump_file == NULL) {
+            rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FOPEN);
+            free(dump_file_name);
+            return NULL;
         }
 
-        fprintf(dump_file, "\n");
+        if (fclose(dump_file) != 0) {
+            rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FCLOSE);
+        }
+
+        free(dump_file_name);
+        rtlsp_logl(MESSAGE_WARNING, LOW, "Dump created");
     }
 
-    if (fclose(dump_file) != 0) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FCLOSE);
-    }
-
-    if (fclose(proc_maps) != 0) {
-        rtlsp_logl(MESSAGE_ERROR, LOW, ERR_FCLOSE);
-    }
-
-    rtlsp_logl(MESSAGE_WARNING, LOW, "Dump created");
-    free(dump_file_name);
-    free(line);
-    sem_post(rtlsp.sem_dump);
+    return NULL;
 }
 
-void rtlsp_log_config(int signo, siginfo_t* info, void* other) {
-    sem_wait(rtlsp.sem_is_on);
-    switch (info->si_value.sival_int) {
-        case 0:
-            rtlsp.llevel = MIN;
-            break;
-        case 1:
-            rtlsp.llevel = STANDARD;
-            break;
-        case 2:
-            rtlsp.llevel = MAX;
-            break;
-        case 3:
-            if (rtlsp.is_on) {
-                rtlsp.is_on = 0;
-            } else {
-                rtlsp.is_on = 1;
-            }
-            break;
-        default:
-            rtlsp_logl(MESSAGE_ERROR, LOW, ERR_SIG);
-            break;
+void* rtlsp_log_config(void* arg) {
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, rtlsp.sig_config);
+    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+
+    while(1) {
+
+        sem_wait(&rtlsp.sem_log);
+        switch (sig_config) {
+            case 0:
+                rtlsp.llevel = MIN;
+                rtlsp_logl(MESSAGE_INFO, LOW, "Log level set to MIN");
+                break;
+            case 1:
+                rtlsp.llevel = STANDARD;
+                rtlsp_logl(MESSAGE_INFO, LOW, "Log level set to STANDARD");
+                break;
+            case 2:
+                rtlsp.llevel = MAX;
+                rtlsp_logl(MESSAGE_INFO, LOW, "Log level set to MAX");
+                break;
+            case 3:
+                if (rtlsp.is_on) {
+                    rtlsp_logl(MESSAGE_INFO, LOW, "Log turned off");
+                    rtlsp.is_on = 0;
+                } else {
+                    rtlsp.is_on = 1;
+                    rtlsp_logl(MESSAGE_INFO, LOW, "Log turned on");
+                }
+                break;
+            default:
+                break;
+        }
     }
-    sem_post(rtlsp.sem_is_on);
+
+    return NULL;
+}
+
+// signal handler for rtlsp_config
+void rtlsp_signal_log_config(int signo, siginfo_t *info, void *other) {
+    sem_post(&rtlsp.sem_log);
+    sig_config = signo;
+}
+
+// signal handler for rtlsp_dump
+void rtlsp_signal_dump(int signo, siginfo_t *info, void *other) {
+    sem_post(&rtlsp.sem_dump);
 }
 
 void rtlsp_sig(int pid, int signo, int value) {
